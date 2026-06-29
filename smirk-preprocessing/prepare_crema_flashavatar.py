@@ -27,7 +27,7 @@ from models.bisenet import BiSeNet
 SUBJECTS = ['1001', '1005', '1010'] # which crema-d subjects to use. edit as needed.
 DATASETS_ROOT = r'pathto\smirk\datasets'
 
-# Build full sequence list from disk (all subject sub-dirs)
+# build full sequence list from disk (all subject sub-dirs)
 def _all_seqs():
     seqs = []
     for subj in SUBJECTS:
@@ -119,21 +119,30 @@ def bisenet_mask(model: torch.nn.Module, img_rgb: np.ndarray,
 
 
 #process
+def _resolve_video(seq_name: str):
+    for ext in ('.flv', '.mp4'):
+        path = os.path.join(FLV_DIR, seq_name + ext)
+        if os.path.exists(path):
+            return path
+    return None
+
+
 def process_sequence(seq_name: str, model: torch.nn.Module,
                      device: torch.device) -> None:
-    flv_path = os.path.join(FLV_DIR, seq_name + '.flv')
-    if not os.path.exists(flv_path):
-        print(f'[SKIP] {flv_path} not found')
+    video_path = _resolve_video(seq_name)
+    if video_path is None:
+        print(f'[SKIP] no .flv/.mp4 found for {seq_name} in {FLV_DIR}')
         return
 
-    out_dir     = os.path.join(OUTPUT_BASE, seq_name)
+    subject_id = seq_name[:4]
+    out_dir = os.path.join(OUTPUT_BASE, subject_id, seq_name)
 
     # if imgs/ already has files then count expected frames and skip if done
     imgs_dir_check = os.path.join(out_dir, 'imgs')
     if os.path.isdir(imgs_dir_check):
         existing = len([f for f in os.listdir(imgs_dir_check) if f.endswith('.jpg')])
         if existing > 0:
-            cap_check = cv2.VideoCapture(flv_path)
+            cap_check = cv2.VideoCapture(video_path)
             expected  = int(cap_check.get(cv2.CAP_PROP_FRAME_COUNT))
             cap_check.release()
             if existing >= expected:
@@ -145,7 +154,7 @@ def process_sequence(seq_name: str, model: torch.nn.Module,
     for d in [imgs_dir, alpha_dir, parsing_dir]:
         os.makedirs(d, exist_ok=True)
 
-    cap = cv2.VideoCapture(flv_path)
+    cap = cv2.VideoCapture(video_path)
     n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     print(f'\n[{seq_name}]  {n_frames} frames  ->  {out_dir}')
 
