@@ -8,6 +8,21 @@ There are two primary phases to this pipeline:
 2. **FlashAvatar**: train then render with `test.py`.
 
 FlashAvatar step must be done using WSL/Linux. Although it is fine to perform the SMIRK step using Windows, it is recommended to do so in WSL/Linux which is what this repo assumes.
+
+**Recmomended layout:** (`main` is the overarching parent folder):
+
+```
+main/
+  smirk-flashavatar-pipeline/   # THIS repo, which includes custom scripts and patches and this README
+  FlashAvatar-code/             # cloned from flashavatar's git repo, and then apply patches and custom scripts
+  smirk/                        # cloned from smirk's git repo, and then add the smirk-preprocessing folder from our pipeline repo into here
+  face-parsing/                 # cloned from BiSeNet's git repo
+  RobustVideoMatting/           # cloned from RVM's git repo, for non crema-d 
+  input-videos/                 # video input into the pipeline. not required but paths are set for this kind of layout.
+  pytorch3d-build/              # pytorch3d clone (optional, good idea if RAM constraints)
+```
+
+Edit path constants at the top of each preprocessing script before running if needed.
 ---
 
 ## Conda environment setup
@@ -61,34 +76,30 @@ pip install --upgrade pip setuptools wheel
 
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
+pip install "numpy<2"   # chumpy / legacy deps break on numpy 2.x
 pip install scipy chumpy scikit-image opencv-python ninja lpips loguru plyfile tqdm yacs
 
 conda install -y -c nvidia cuda-nvcc=12.8 cuda-cudart-dev=12.8
 conda install -y -c conda-forge gxx_linux-64=12.4 gcc_linux-64=12.4
 
 export CUDA_HOME="$CONDA_PREFIX/targets/x86_64-linux"
-export PATH="$CONDA_PREFIX/bin:$CUDA_HOME/bin:$PATH"
+export PATH="$CONDA_PREFIX/bin:$CONDA_PREFIX/nvvm/bin:$CUDA_HOME/bin:$PATH"
 export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
 export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
 export TORCH_CUDA_ARCH_LIST="12.0"
 export FORCE_CUDA=1
 pip install --no-build-isolation submodules/diff-gaussian-rasterization submodules/simple-knn
-
-git clone --depth 1 --branch stable https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d-build
-export CUDA_HOME="$CONDA_PREFIX/targets/x86_64-linux"
-export PATH="$CUDA_HOME/bin:$CONDA_PREFIX/bin:$PATH"
-export CPATH="$CUDA_HOME/include:$(find $CONDA_PREFIX/lib/python3.10/site-packages/nvidia -type d -name include | tr '\n' ':')"
-export LIBRARY_PATH="$(find $CONDA_PREFIX/lib/python3.10/site-packages/nvidia -type d -name lib | tr '\n' ':')$CONDA_PREFIX/lib"
-export TORCH_CUDA_ARCH_LIST="12.0"
-export FORCE_CUDA=1
-pip install --no-build-isolation /tmp/pytorch3d-build
 ```
+
+
+
+**Note on chumpy/pickle failure:** if `generic_model.pkl` fails with pickle/`numpy` errors on chumpy 0.70, patch `$CONDA_PREFIX/lib/python3.10/site-packages/chumpy/__init__.py` so `from numpy import bool, int, float, complex, object, unicode, str, nan, inf` becomes `from numpy import bool_, int_, float_, complex_, object_, nan, inf` (drop `unicode` / bare `str`). Then re-run after `pip install chumpy`.
 
 If the rasterizer step still fails, reinstall torch for your GPU, then rerun the two `pip install --no-build-isolation submodules/...` lines.
 
 If **`simple_knn`** fails with `FLT_MAX is undefined`, add `#include <float.h>` as the first line of `submodules/simple-knn/simple_knn.cu`, then rerun the `simple-knn` install.
 
-Do **not** run `conda install pytorch3d` in this env after installing CUDA torch — it can replace torch with a CPU build. Build from source as above (or copy a working pytorch3d egg from an existing lab env).
+Do NOT run `conda install pytorch3d` in this env after installing CUDA torch as it can replace torch with a CPU build. Build from source.
 
 Additional/alt PyTorch3D install notes: https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md
 
@@ -120,7 +131,7 @@ pip install albumentations==1.3.0 mediapipe==0.10.10 "numpy<2" omegaconf==2.3.0 
   scikit_learn==1.3.2 scikit-image==0.22.0 timm==0.9.16 tqdm==4.66.2 chumpy==0.70 \
   fvcore iopath pytorch_lightning==2.2.1 gdown
 conda install -y -c nvidia cuda-nvcc=12.8 cuda-cudart-dev=12.8 cmake ninja
-git clone --depth 1 --branch stable https://github.com/facebookresearch/pytorch3d.git /tmp/pytorch3d-build
+git clone --depth 1 --branch stable https://github.com/facebookresearch/pytorch3d.git path/to/pytorch3d-build
 export CUDA_HOME="$CONDA_PREFIX/targets/x86_64-linux"
 export PATH="$CUDA_HOME/bin:$CONDA_PREFIX/nvvm/bin:$CONDA_PREFIX/bin:$PATH"
 unset NVCC_PREPEND_FLAGS
@@ -128,8 +139,10 @@ export CPATH="$CUDA_HOME/include:$(find $CONDA_PREFIX/lib/python3.9/site-package
 export LIBRARY_PATH="$(find $CONDA_PREFIX/lib/python3.9/site-packages/nvidia -type d -name lib | tr '\n' ':')$CONDA_PREFIX/lib"
 export TORCH_CUDA_ARCH_LIST="12.0"
 export FORCE_CUDA=1
-pip install --no-build-isolation /tmp/pytorch3d-build
+MAX_JOBS=1 pip install --no-build-isolation path/to/pytorch3d-build
 ```
+
+**Additional note:** keep `"numpy<2"`, and if `conda install av` breaks `scikit-image`, reinstall with `pip install scikit-image==0.22.0`. 
 
 **Option B: Older GPUs (RTX 30/40 -series):** follow SMIRK install instructions from their GitHub page instead instead from [SMIRK README](https://github.com/georgeretsi/smirk#installation).
 
@@ -148,8 +161,8 @@ Get FLAME 2020 generic model (just like earlier) from `https://flame.is.tue.mpg.
 The default scripts from the installed FlashAvatar and SMIRK are not sufficient. THIS repo comes with scripts you are supposed to use.
 | File / Folder | Type | Description |
 | :--- | :--- | :--- |
-| **`smirk-preprocessing/`** | Directory | Copy this directly into the SMIRK repo. |
-| **`flashavatar/`** | Directory | Patched FlashAvatar files: `package.py`, `train.py`, `test.py`, `flame_mica.py`, `scene/`, `src/deform_model.py`, and `tools/` (see Step 2). |
+| **`smirk-preprocessing/`** | Directory | Copy this directly into the SMIRK repo. Includes **`prepare_crema_flashavatar.py`** (CREMA green-screen) and **`prepare_custom_flashavatar.py`** (in-the-wild: center crop + RVM alpha). |
+| **`flashavatar/`** | Directory | Patched FlashAvatar files: `package.py`, `train.py`, `test.py`, `flame/flame_mica.py`, `scene/`, `src/deform_model.py`, and `tools/` (see Step 2). |
 | **`smirk_requirements_pip.txt`** | File | Optional `pip` configuration pins for SMIRK setup. |
 | **`flashavatar_environment.yml`** | File | Optional `conda` environment export for FlashAvatar (Lab setup). |
 | **`README.md`** | File | The core instruction manual for the workflow pipeline. |
@@ -169,7 +182,7 @@ mkdir -p path/to/FlashAvatar-code/tools
 cp path/to/<pipeline-repo>/flashavatar/package.py path/to/FlashAvatar-code/
 cp path/to/<pipeline-repo>/flashavatar/train.py path/to/FlashAvatar-code/
 cp path/to/<pipeline-repo>/flashavatar/test.py path/to/FlashAvatar-code/
-cp path/to/<pipeline-repo>/flashavatar/flame_mica.py path/to/FlashAvatar-code/flame/
+cp path/to/<pipeline-repo>/flashavatar/flame/flame_mica.py path/to/FlashAvatar-code/flame/
 cp path/to/<pipeline-repo>/flashavatar/scene/*.py path/to/FlashAvatar-code/scene/
 cp path/to/<pipeline-repo>/flashavatar/src/deform_model.py path/to/FlashAvatar-code/src/
 cp path/to/<pipeline-repo>/flashavatar/tools/fit_flame_exp.py path/to/FlashAvatar-code/tools/
@@ -180,7 +193,9 @@ cp path/to/<pipeline-repo>/flashavatar/tools/run_all_crema.sh path/to/FlashAvata
 chmod +x path/to/FlashAvatar-code/tools/*.sh
 ```
 
-The FlashAvatar **`train.py` / `test.py` / `scene/`** do not accept this pipeline's `--downscale`, `--full_iters`, or `--frame_delta` flags; the copies above are required.
+Note: `flame_mica.py` path is **`flashavatar/flame/flame_mica.py`**, not the repo root.
+
+Furthermore, the FlashAvatar `train.py` / `test.py` / `scene/` do not accept this pipeline's `--downscale`, `--full_iters`, or `--frame_delta` flags so the copies above are required.
 
 
 ---
@@ -189,13 +204,17 @@ The FlashAvatar **`train.py` / `test.py` / `scene/`** do not accept this pipelin
 
 FlashAvatar expects, for each identity **`idname`**:
 
-**Images and masks** (use BiSeNet in this pipeline and RVM for nonuniform background if needed):
+**Images and masks** (use BiSeNet in this pipeline; **CREMA-D** uses green-screen chroma key, **custom clips** use RVM — see below):
+
+**Dataset layout:** preprocessing writes nested folders and training uses a flat **`idname`** via symlink from `prepare_crema_clip.py`:
 
 ```
-dataset/<idname>/
-  imgs/          # RGB frames
-  alpha/         # alpha masks
-  parsing/       # parsing 
+dataset/<subject_id>/<idname>/     # example: dataset/1015/1015_DFA_ANG_XX/
+  imgs/          # video frames (512×512 .jpg for this pipeline)
+  alpha/         # alpha masks (same frame indices)
+  parsing/       # mouth / neckhead masks
+
+dataset/<idname>  -> symlink to dataset/<subject_id>/<idname>/   # created by prepare_crema_clip.py
 ```
 
 **Per-frame FLAME tracking** for FlashAvatar’s loader:
@@ -353,7 +372,7 @@ python smirk-preprocessing/export_verts.py \
 
 CREMA-D is a massive monocular emotional video dataset which this pipeline was intended for. For the purposes of this lab, the private `dataset` Google Drive folder holds the already pre-processed data with SMIRK and other scripts. It just needs to go through the preprocessing through BiSeNet step and the FlashAvatar step. However, if access to that folder is not possible, then please observe below.
 
-If you are working with CREMA-D (green-screen **`.flv`** clips), batch paths and layout helpers live under **`smirk-preprocessing/`**. Edit folder paths at the top of each script, then:
+If you are working with CREMA-D (green-screen **`.flv`** or **`.mp4`** clips), batch paths and layout helpers live under **`smirk-preprocessing/`**. Edit **`FLV_DIR`**, **`OUTPUT_BASE`**, **`FACE_PARSING_DIR`**, and **`SUBJECTS`** at the top of **`prepare_crema_flashavatar.py`**, then:
 
 ```bash
 conda activate smirk
@@ -362,10 +381,12 @@ cd path/to/smirk
 # SMIRK on every .flv in VideoFlash/
 python smirk-preprocessing/process_dataset.py
 
-# imgs/, alpha/, parsing/ for FlashAvatar (BiSeNet + green-screen key)
-conda activate face-parsing
+# imgs/, alpha/, parsing/ — needs torch + BiSeNet (NOT the face-parsing-only env)
+conda activate FlashAvatar
 python smirk-preprocessing/prepare_crema_flashavatar.py
 ```
+
+**NOTE:** CREMA output layout writes **`dataset/<subject_id>/<seq_name>/`** (example: `dataset/1015/1015_DFA_ANG_XX/`). It supports **`.flv`** and **`.mp4`** in **`FLV_DIR`**. Do **not** use this script on in-the-wild backgrounds as chroma key assumes CREMA's dark green screen.
 
 On the **FlashAvatar** side (WSL, **`FlashAvatar`** env):
 
@@ -373,11 +394,51 @@ On the **FlashAvatar** side (WSL, **`FlashAvatar`** env):
 conda activate FlashAvatar
 cd path/to/FlashAvatar-code
 
-python tools/prepare_crema_clip.py --clip_dir path/to/clip_folder --idname MyClipName
+python tools/prepare_crema_clip.py \
+  --clip_dir dataset/1015/1015_DFA_ANG_XX \
+  --idname 1015_DFA_ANG_XX
 
 # many clips:
 bash tools/run_all_crema.sh
 ```
+
+`prepare_crema_clip.py` symlinks **`dataset/<idname>`** → the nested clip folder so **`run_identity.sh`** can use the flat id.
+
+### Custom / in-the-wild video (non-green-screen)
+
+**NOTE:** Use **`prepare_custom_flashavatar.py`**, not **`prepare_crema_flashavatar.py`**. Squashing 16:9 → 512×512 without cropping might hurt quality. Alpha comes from **[Robust Video Matting](https://github.com/PeterL1n/RobustVideoMatting)** (RVM), not chroma key like with CREMA-D processing.
+
+RVM setup (FlashAvatar env — RVM runs here during preprocessing):
+
+```bash
+conda activate FlashAvatar
+git clone https://github.com/PeterL1n/RobustVideoMatting path/to/RobustVideoMatting
+wget -P path/to/RobustVideoMatting/checkpoints \
+  https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3.pth
+conda install -y -c conda-forge av pims
+```
+
+Edit **`INPUT_DIR`**, **`OUTPUT_BASE`**, **`FACE_PARSING_DIR`**, **`RVM_DIR`**, **`SEQS`**, and **`VIDEO_SOURCES`** at the top of **`prepare_custom_flashavatar.py`**, then:
+
+```bash
+conda activate FlashAvatar
+cd path/to/smirk
+python smirk-preprocessing/prepare_custom_flashavatar.py
+```
+
+The script also writes a **center-cropped proxy** **`input-videos/<idname>.mp4`**. Run SMIRK on **that** file so tracking matches **`imgs/`** geometry:
+
+```bash
+conda activate smirk
+cd path/to/smirk
+python smirk-preprocessing/demo_video.py \
+  --input_path path/to/input-videos/<idname>.mp4 \
+  --out_path results/<idname> \
+  --checkpoint pretrained_models/SMIRK_em1.pt \
+  --crop
+```
+
+Copy **`frame_*.npy`** and **`*_mesh_sequence.npy`** into **`dataset/<subject_id>/<idname>/`**, then run **`prepare_crema_clip.py`** and **`run_identity.sh`** as for CREMA (same **`--clip_dir`** / **`--idname`** pattern).
 
 ---
 
@@ -411,15 +472,15 @@ python package.py \
 
 (Example **`720 1280`** = width × height for a rotated phone clip; CREMA-D **`imgs/`** are typically **`512 512`**.)
 
-**CREMA-D clip** (folder already has **`frame_*.npy`**, **`*_mesh_sequence.npy`**, **`imgs/`**, **`alpha/`**, **`parsing/`** — see optional section above):
+**CREMA-D clip** (folder already has **`frame_*.npy`**, **`*_mesh_sequence.npy`**, **`imgs/`**, **`alpha/`**, **`parsing/`** — see CREMA / custom sections above):
 
 ```bash
 python tools/prepare_crema_clip.py \
-  --clip_dir path/to/clip_folder \
-  --idname MyClipName
+  --clip_dir dataset/1015/1015_DFA_ANG_XX \
+  --idname 1015_DFA_ANG_XX
 ```
 
-That writes **`metrical-tracker/output/MyClipName/checkpoint/*.frame`** and  **`dataset/MyClipName`** to the clip folder.
+That writes **`metrical-tracker/output/<idname>/checkpoint/*.frame`** and symlinks **`dataset/<idname>`** → the clip folder.
 
 ---
 
@@ -430,9 +491,10 @@ conda activate FlashAvatar
 cd path/to/FlashAvatar-code
 ```
 
-**Train + test**:
+**Train + test** (use the flat **`idname`**, not the nested path — e.g. **`1015_DFA_ANG_XX`**, not **`1015/1015_DFA_ANG_XX`**):
+
 ```bash
-./tools/run_identity.sh MyClipName 0.65 25000 both 0
+./tools/run_identity.sh 1015_DFA_ANG_XX 0.65 25000 both 0
 ```
 
 Arguments: **`id`**, **`downscale`**, **`full_iters`**, **`both` / `train_only` / `test_only`**, **`frame_delta`**.  
@@ -472,6 +534,4 @@ Test `downscale` must match train.
 
 - Checkpoints: **`dataset/<idname>/log/ckpt/chkpnt*.pth`** (written every **5000** iterations during training)
 - Video: **`dataset/<idname>/log/test.avi`** (left is ground truth, right is render); **`run_identity.sh`** also writes **`test.mp4`** if **`ffmpeg`** is installed
-
----
 
