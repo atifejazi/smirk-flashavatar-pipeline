@@ -89,6 +89,17 @@ export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
 export TORCH_CUDA_ARCH_LIST="12.0"
 export FORCE_CUDA=1
 pip install --no-build-isolation submodules/diff-gaussian-rasterization submodules/simple-knn
+
+
+git clone --depth 1 --branch stable https://github.com/facebookresearch/pytorch3d.git path/to/pytorch3d-build
+export CUDA_HOME="$CONDA_PREFIX/targets/x86_64-linux"
+export PATH="$CUDA_HOME/bin:$CONDA_PREFIX/nvvm/bin:$CONDA_PREFIX/bin:$PATH"
+export CPATH="$CUDA_HOME/include:$(find $CONDA_PREFIX/lib/python3.10/site-packages/nvidia -type d -name include | tr '\n' ':')"
+export LIBRARY_PATH="$(find $CONDA_PREFIX/lib/python3.10/site-packages/nvidia -type d -name lib | tr '\n' ':')$CONDA_PREFIX/lib"
+export TORCH_CUDA_ARCH_LIST="12.0"
+export FORCE_CUDA=1
+pip install --no-build-isolation path/to/pytorch3d-build
+
 ```
 
 
